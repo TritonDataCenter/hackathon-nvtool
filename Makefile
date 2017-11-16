@@ -12,10 +12,12 @@ CFLAGS =		-gdwarf-2 -std=c99 -D__EXTENSIONS__ \
 			-Wall -Wextra -Werror \
 			-Wno-unused-parameter \
 			-I./duk
-LIBS =			-lm -lnvpair
+LIBS =			-lm -lnvpair -L/usr/lib/fm -R/usr/lib/fm -lfmd_msg
+
+PROG =			nvtool
 
 
-all: testing
+all: $(PROG)
 
 $(DUKTAPE_DIR)/duktape.c:
 	rm -rf $(@D)
