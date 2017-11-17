@@ -28,7 +28,7 @@ static void
 usage(void)
 {
 	(void) fprintf(stderr, "\nUsage: nvtool [-j] [-g field] [-i in_file]"
-	    "[-e script]\n\n");
+	    "[-e script] [-o out_file]\n\n");
 }
 
 static int
@@ -67,6 +67,36 @@ rnv_out:
 	return (ret);
 }
 
+static int
+write_nvfile(const char *fname, nvlist_t *nvl)
+{
+	int fd, ret = -1;
+	size_t nvbufsz;
+	char *nvbuf = NULL;
+
+	if ((fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, 0644)) < 0) {
+		(void) fprintf(stderr, "failed to open %s for writing (%s)\n",
+		    fname, strerror(errno));
+		return (-1);
+	}
+
+	if (nvlist_pack(nvl, &nvbuf, &nvbufsz, NV_ENCODE_NATIVE, 0) != 0) {
+		(void) fprintf(stderr, "failed to pack nvlist\n");
+		goto wnv_out;
+	}
+
+	if (write(fd, nvbuf, nvbufsz) < 0) {
+		(void) fprintf(stderr, "failed to write out nvlist\n");
+		goto wnv_out;
+	}
+	ret = 0;
+
+wnv_out:
+	(void) close(fd);
+	free(nvbuf);
+	return (ret);
+}
+
 /*
  * args: <nvlist pointer>, <key name>, <string value>
  */
@@ -92,14 +122,14 @@ wrap_nvlist_add_string(duk_context *dc)
 int
 main(int argc, char *argv[])
 {
-	int c;
+	int c, status = 1;
 	char *scripts[128];
 	unsigned nscripts = 0;
 	unsigned errors = 0;
-	int opt_g = 0, opt_i = 0, opt_j = 0;
-	char *nvfield = NULL, *in_fname = NULL;
+	int opt_g = 0, opt_i = 0, opt_j = 0, opt_o = 0;
+	char *nvfield = NULL, *in_fname = NULL, *out_fname = NULL;
 
-	while ((c = getopt(argc, argv, ":e:g:i:j")) != -1) {
+	while ((c = getopt(argc, argv, ":e:g:i:jo:")) != -1) {
 		switch (c) {
 		case 'e':
 			scripts[nscripts++] = optarg;
@@ -117,6 +147,11 @@ main(int argc, char *argv[])
 
 		case 'j':
 			opt_j++;
+			break;
+
+		case 'o':
+			opt_o++;
+			out_fname = optarg;
 			break;
 
 		case ':':
@@ -145,7 +180,7 @@ main(int argc, char *argv[])
 		errx(1, "could not initialise Javascript interpreter");
 	}
 
-	nvlist_t *nvl;
+	nvlist_t *nvl = NULL;
 	if (opt_i) {
 		char *nvbuf;
 		int nvbufsz, rv;
@@ -194,14 +229,14 @@ main(int argc, char *argv[])
 
 	duk_destroy_heap(dc);
 
-	if (!opt_g) {
+	if (!opt_g && !opt_o) {
 		if (opt_j) {
 			(void) nvlist_print_json(stdout, nvl);
 			(void) fprintf(stdout, "\n");
 		} else {
 			nvlist_print(stdout, nvl);
 		}
-	} else {
+	} else if (!opt_o) {
 		char *val;
 
 		if ((val = fmd_msg_decode_tokens(nvl, nvfield, "")) == NULL) {
@@ -213,8 +248,14 @@ main(int argc, char *argv[])
 		free(val);
 	}
 
+	if (opt_o && write_nvfile(out_fname, nvl) < 0) {
+		(void) fprintf(stderr, "failed to serialize nvlist\n");
+		goto out;	
+	}
+	status = 0;
+
 out:
 	nvlist_free(nvl);
 
-	return (0);
+	return (status);
 }
